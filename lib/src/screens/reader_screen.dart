@@ -26,6 +26,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static const _fg = Color(0xFFF0F0F0);
 
   late final List<String> _words;
+  late final Map<int, String> _lineBreaks;
   late List<int> _boundaries;
   late final PageController _controller;
   late int _currentPage;
@@ -34,6 +35,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void initState() {
     super.initState();
     _words = splitWords(widget.piece.body);
+    _lineBreaks = computeLineBreaks(widget.piece.body);
     _recomputeBoundaries();
     final clamped = widget.piece.lastChunkIndex.clamp(
       0,
@@ -67,14 +69,29 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  String _chunkText(int idx) {
+  static const _markerStyle = TextStyle(color: Color(0x55F0F0F0));
+
+  TextSpan _chunkSpan(int idx) {
     final r = chunkRange(
       boundaries: _boundaries,
       chunkIndex: idx,
       wordCount: _words.length,
     );
-    if (r.start >= r.end) return '';
-    return _words.sublist(r.start, r.end).join(' ');
+    if (r.start >= r.end) return const TextSpan(text: '');
+    final children = <InlineSpan>[TextSpan(text: _words[r.start])];
+    for (var i = r.start + 1; i < r.end; i++) {
+      final brk = _lineBreaks[i];
+      if (brk != null) {
+        children.add(TextSpan(
+          text: brk == '\n\n' ? ' ¶ ' : ' / ',
+          style: _markerStyle,
+        ));
+      } else {
+        children.add(const TextSpan(text: ' '));
+      }
+      children.add(TextSpan(text: _words[i]));
+    }
+    return TextSpan(children: children);
   }
 
   void _onPageChanged(int page) {
@@ -104,7 +121,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (newEnd <= start) return; // chunks must have ≥ 1 word
     if (newEnd > _words.length) return; // can't extend past end of body
 
-    final pins = widget.piece.pinnedEnds.toSet()
+    // Freeze all preceding chunk boundaries as pins so that adding a pin for
+    // the current chunk doesn't let flow collapse pages 0..n-1 into one chunk.
+    final pins = widget.piece.pinnedEnds.toSet();
+    for (var k = 1; k <= n; k++) {
+      pins.add(_boundaries[k]);
+    }
+    pins
       ..remove(end)
       ..add(newEnd);
     widget.piece.pinnedEnds = pins.toList()..sort();
@@ -183,7 +206,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 controller: _controller,
                 itemCount: total,
                 onPageChanged: _onPageChanged,
-                itemBuilder: (_, i) => _ChunkView(text: _chunkText(i)),
+                itemBuilder: (_, i) => _ChunkView(span: _chunkSpan(i)),
               )
             else
               const Center(
@@ -250,17 +273,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
 /// (text passes behind the corner buttons; the buttons' soft circles still
 /// keep them visible).
 class _ChunkView extends StatelessWidget {
-  const _ChunkView({required this.text});
+  const _ChunkView({required this.span});
 
-  final String text;
+  final TextSpan span;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 28, 12, 28),
       child: SizedBox.expand(
-        child: AutoSizeText(
-          text,
+        child: AutoSizeText.rich(
+          span,
           textAlign: TextAlign.center,
           // Many lines allowed: lets the algorithm grow the font to fill
           // vertical space when chunks have lots of words. Without this,

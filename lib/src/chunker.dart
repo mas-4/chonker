@@ -4,8 +4,58 @@
 List<String> splitWords(String body) {
   final trimmed = body.trim();
   if (trimmed.isEmpty) return const [];
-  return trimmed.split(RegExp(r'\s+'));
+  // Split on whitespace, then on em/en-dash boundaries, keeping the dash
+  // attached to the preceding token.  Plain hyphens in "well-known" are left
+  // alone.  "word—word" → ["word—", "word"]; "word–word" → ["word–", "word"].
+  return trimmed
+      .split(RegExp(r'\s+'))
+      .expand((tok) {
+        // Split "foo—bar" into ["foo—", "bar"]; leave "—bar" or "foo—" as-is.
+        final parts = tok.split(RegExp(r'(?<=[—–])(?=\S)'));
+        return parts.where((p) => p.isNotEmpty);
+      })
+      .toList();
 }
+
+/// Returns the break type before word at index [i]: `'\n'` for a single
+/// newline (rendered as ` / `), `'\n\n'` for a blank-line paragraph break
+/// (rendered as ` ¶ `).  Indices not present use a plain space.
+///
+/// Word indices here correspond 1-to-1 with [splitWords].
+Map<int, String> computeLineBreaks(String body) {
+  final breaks = <int, String>{};
+  final s = body;
+  final n = s.length;
+  var i = 0;
+  var wordIdx = 0;
+
+  // Skip leading whitespace (mirrors body.trim() in splitWords).
+  while (i < n && _isWs(s[i])) {
+    i++;
+  }
+
+  while (i < n) {
+    // Consume a word.
+    while (i < n && !_isWs(s[i])) {
+      i++;
+    }
+    wordIdx++;
+
+    // Consume trailing whitespace; count newlines.
+    var nlCount = 0;
+    while (i < n && _isWs(s[i])) {
+      if (s[i] == '\n') nlCount++;
+      i++;
+    }
+
+    if (nlCount > 0 && i < n) {
+      breaks[wordIdx] = nlCount >= 2 ? '\n\n' : '\n';
+    }
+  }
+  return breaks;
+}
+
+bool _isWs(String c) => c == ' ' || c == '\t' || c == '\n' || c == '\r';
 
 /// Computes chunk-start boundaries from [pinnedEnds] (word indices the user
 /// has explicitly fixed as chunk endings) and the default flow [chunkSize].
