@@ -291,6 +291,12 @@ class _ChunkView extends StatelessWidget {
           maxLines: 40,
           minFontSize: 18,
           stepGranularity: 1,
+          // Never break a word across lines. Without this, AutoSizeText treats
+          // a mid-word wrap (e.g. "abrepta" / "s") as a valid fit and keeps the
+          // font large; instead, shrink the font until the longest word fits on
+          // a single line. There is no continuation hyphen, so broken words are
+          // silently misleading.
+          wrapWords: false,
           style: const TextStyle(
             color: Color(0xFFF0F0F0),
             fontSize: 360, // upper bound; auto_size shrinks to fit
